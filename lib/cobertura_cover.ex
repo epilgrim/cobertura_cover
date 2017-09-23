@@ -11,11 +11,11 @@ defmodule CoberturaCover do
     end
 
     html_output = opts[:html_output]
+    output = Keyword.get(opts, :output, "coverage.xml")
 
     fn() ->
-      generate_cobertura
-
-      if html_output = opts[:html_output], do: generate_html(html_output)
+      generate_cobertura(output)
+      if html_output, do: generate_html(html_output)
     end
   end
 
@@ -27,8 +27,8 @@ defmodule CoberturaCover do
     end
   end
 
-  def generate_cobertura do
-    Mix.shell.info "\nGenerating cobertura.xml... "
+  def generate_cobertura(output) do
+    Mix.shell.info "\nGenerating #{output}... "
 
     prolog = [
       ~s(<?xml version="1.0" encoding="utf-8"?>\n),
@@ -51,7 +51,7 @@ defmodule CoberturaCover do
       ]
     }
     report = :xmerl.export_simple([root], :xmerl_xml, prolog: prolog)
-    File.write("coverage.xml", report)
+    :ok = File.write(output, report)
   end
 
   defp packages do
