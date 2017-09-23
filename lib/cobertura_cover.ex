@@ -47,7 +47,7 @@ defmodule CoberturaCover do
         version: "1.9",
       ], [
         sources: [],
-        packages: packages,
+        packages: packages(),
       ]
     }
     report = :xmerl.export_simple([root], :xmerl_xml, prolog: prolog)
@@ -57,7 +57,6 @@ defmodule CoberturaCover do
   defp packages do
     [{:package, [name: "", 'line-rate': 0, 'branch-rate': 0, complexity: 1], [
       classes: Enum.map(:cover.modules, fn mod ->
-        class_name = inspect(mod)
         # <class branch-rate="0.634920634921" complexity="0.0"
         #  filename="PSPDFKit/PSPDFConfiguration.m" line-rate="0.976377952756"
         #  name="PSPDFConfiguration_m">
@@ -79,7 +78,7 @@ defmodule CoberturaCover do
 
     functions
     |> Stream.map(&elem(&1, 0))
-    |> Stream.map(fn {_m, f, a} ->
+    |> Stream.map(fn {_m, f, _a} ->
       # <method name="main" signature="([Ljava/lang/String;)V" line-rate="1.0" branch-rate="1.0">
       {:method, [name: to_string(f), signature: "", 'line-rate': 0, 'branch-rate': 0], []}
     end)

@@ -8,8 +8,8 @@ defmodule CoberturaCover.Mixfile do
       elixir: "~> 1.0",
       deps: [],
       source_url: "https://github.com/PSPDFKit-labs/cobertura_cover",
-      description: description,
-      package: package,
+      description: description(),
+      package: package(),
     ]
   end
 
