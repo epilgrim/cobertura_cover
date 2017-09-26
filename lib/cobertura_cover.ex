@@ -79,18 +79,16 @@ defmodule CoberturaCover do
   end
 
   defp class(module) do
-    {:ok, {_, coverage}} = :cover.analyse(module, :coverage, :module)
-
     module_name = inspect(module)
     file_name = Path.relative_to_cwd(module.module_info(:compile)[:source])
-    {_methods_coverage, methods_tree} = methods(module)
+    {methods_coverage, methods_tree} = methods(module)
     {_hits, lines_tree} = lines(module)
     tree =
       {:class,
         [
           name: module_name,
           filename: file_name,
-          'line-rate': coverage |> cover_ratio |> to_string,
+          'line-rate': methods_coverage |> cover_ratio |> to_string,
           'branch-rate': 0,
           complexity: 1,
         ],
@@ -99,7 +97,7 @@ defmodule CoberturaCover do
           lines: lines_tree
         ]
       }
-    {coverage, tree}
+    {methods_coverage, tree}
   end
 
   defp methods(module) do
@@ -107,6 +105,7 @@ defmodule CoberturaCover do
     reduce_analysis(functions, &method/1)
   end
 
+  defp method({{_module, :__info__, _arity}, _coverage}), do: nil
   defp method({{_module, name, arity}, coverage}) do
     tree =
       {
