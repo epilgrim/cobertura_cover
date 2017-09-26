@@ -11,7 +11,7 @@ defmodule CoberturaCover do
     end
 
     html_output = opts[:html_output]
-    output = Keyword.get(opts, :output, "coverage.xml")
+    output = Keyword.get(opts, :xml_output, "coverage.xml")
 
     fn() ->
       generate_cobertura(output)
@@ -35,9 +35,10 @@ defmodule CoberturaCover do
       ~s(<!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">\n)
     ]
 
+    {coverage, tree} = packages()
     root = {:coverage, [
         timestamp: timestamp(),
-        'line-rate': 0,
+        'line-rate': coverage |> cover_ratio |> to_string,
         'lines-covered': 0,
         'lines-valid': 0,
         'branch-rate': 0,
@@ -47,7 +48,7 @@ defmodule CoberturaCover do
         version: "1.9",
       ], [
         sources: [],
-        packages: packages(),
+        packages: tree,
       ]
     }
     report = :xmerl.export_simple([root], :xmerl_xml, prolog: prolog)
@@ -55,49 +56,120 @@ defmodule CoberturaCover do
   end
 
   defp packages do
-    [{:package, [name: "", 'line-rate': 0, 'branch-rate': 0, complexity: 1], [
-      classes: Enum.map(:cover.modules, fn mod ->
-        # <class branch-rate="0.634920634921" complexity="0.0"
-        #  filename="PSPDFKit/PSPDFConfiguration.m" line-rate="0.976377952756"
-        #  name="PSPDFConfiguration_m">
-
-        {:class,
+    {coverage, tree} = classes()
+    tree =
+      [
+        {
+          :package,
           [
-            name: inspect(mod),
-            filename: Path.relative_to_cwd(mod.module_info(:compile)[:source]),
-            'line-rate': 0, 'branch-rate': 0, complexity: 1,
+            name: "",
+            'line-rate': coverage |> cover_ratio |> to_string,
+            'branch-rate': 0,
+            complexity: 1
           ],
-          [methods: methods(mod), lines: lines(mod)]
+          [classes: tree]
         }
-      end)
-    ]}]
+      ]
+    {coverage, tree}
   end
 
-  defp methods(mod) do
-    {:ok, functions} = :cover.analyse(mod, :calls, :function)
-
-    functions
-    |> Stream.map(&elem(&1, 0))
-    |> Stream.map(fn {_m, f, _a} ->
-      # <method name="main" signature="([Ljava/lang/String;)V" line-rate="1.0" branch-rate="1.0">
-      {:method, [name: to_string(f), signature: "", 'line-rate': 0, 'branch-rate': 0], []}
-    end)
-    |> Enum.to_list
+  defp classes do
+    modules = :cover.modules
+    reduce_analysis(modules, &class/1)
   end
 
-  defp lines(mod) do
-    {:ok, lines} = :cover.analyse(mod, :calls, :line)
+  defp class(module) do
+    {:ok, {_, coverage}} = :cover.analyse(module, :coverage, :module)
 
-    lines
-    |> Stream.filter(fn {{_m, line}, _hits} -> line != 0 end)
-    |> Enum.map(fn {{_m, line}, hits} ->
-      # <line branch="false" hits="21" number="76"/>
-      {:line, [branch: false, hits: hits, number: line], []}
-    end)
+    module_name = inspect(module)
+    file_name = Path.relative_to_cwd(module.module_info(:compile)[:source])
+    {_methods_coverage, methods_tree} = methods(module)
+    {_hits, lines_tree} = lines(module)
+    tree =
+      {:class,
+        [
+          name: module_name,
+          filename: file_name,
+          'line-rate': coverage |> cover_ratio |> to_string,
+          'branch-rate': 0,
+          complexity: 1,
+        ],
+        [
+          methods: methods_tree,
+          lines: lines_tree
+        ]
+      }
+    {coverage, tree}
+  end
+
+  defp methods(module) do
+    {:ok, functions} = :cover.analyse(module, :coverage, :function)
+    reduce_analysis(functions, &method/1)
+  end
+
+  defp method({{_module, name, arity}, coverage}) do
+    tree =
+      {
+        :method,
+        [
+          name: "#{name}/#{arity}",
+          signature: "",
+          'line-rate': coverage |> cover_ratio |> to_string,
+          'branch-rate': 0
+        ],
+        []
+      }
+    {coverage, tree}
+  end
+
+  defp lines(module) do
+    {:ok, lines} = :cover.analyse(module, :calls, :line)
+    reduce_analysis(lines, &line/1)
+  end
+
+  defp line({{_module, 0}, _hits}), do: nil
+  defp line({{_module, line_number}, hits}) do
+    tree =
+      {
+        :line,
+        [
+          branch: false,
+          hits: hits,
+          number: line_number
+        ],
+        []
+      }
+    {hits, tree}
+  end
+
+
+  defp reduce_analysis(targets, processor) do
+    {acc, collection} =
+      Enum.reduce(
+        targets,
+        {nil, []},
+        fn (target, acc) ->
+          case processor.(target) do
+            nil -> acc
+            {new_val, tree} -> accumulate(acc, {new_val, tree})
+          end
+        end
+      )
+    {acc, Enum.reverse(collection)}
+  end
+
+  defp accumulate({nil, collection}, {new_val, tree}) when is_integer(new_val), do: {new_val, [tree | collection]}
+  defp accumulate({acc, collection}, {new_val, tree}) when is_integer(new_val), do: {acc + new_val, [tree | collection]}
+  defp accumulate({nil, collection}, {{_covered, _not_covered} = new_val, tree}), do: {new_val, [tree | collection]}
+  defp accumulate({{old_covered, old_not_covered}, collection}, {{covered, not_covered}, tree}) do
+    {{old_covered + covered, old_not_covered + not_covered}, [tree | collection]}
   end
 
   defp timestamp do
     {mega, seconds, micro} = :os.timestamp()
     mega * 1000000000 + seconds * 1000 + div(micro, 1000)
   end
+
+  defp cover_ratio({0, 0}), do: 0
+  defp cover_ratio({covered, not_covered}), do: covered / (covered + not_covered)
 end
